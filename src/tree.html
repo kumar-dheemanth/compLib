@@ -1,226 +1,192 @@
-<!DOCTYPE html>
-<meta charset="utf-8">
-<html>
-<head>
-    <style>
-        .node rect {
-            fill: #fff;
-            stroke: steelblue;
-            stroke-width: 1.5px;
-        }
+import { Component, AfterViewInit, ElementRef, ViewChild } from '@angular/core';
+import * as d3 from 'd3';
 
-        .node text {
-            font: 12px sans-serif;
-            pointer-events: none;
-        }
+@Component({
+  selector: 'app-tree-diagram',
+  templateUrl: './tree-diagram.component.html',
+  styleUrls: ['./tree-diagram.component.css']
+})
+export class TreeDiagramComponent implements AfterViewInit {
+  @ViewChild('treeContainer') private treeContainer!: ElementRef;
 
-        .link {
-            fill: none;
-            stroke: #ccc;
-            stroke-width: 1.5px;
-        }
+  private data = {
+    name: 'Root',
+    children: [
+      {
+        name: 'Child 1',
+        children: [{ name: 'Grandchild 1' }, { name: 'Grandchild 2' }]
+      },
+      {
+        name: 'Child 2',
+        children: [{ name: 'Grandchild 3' }, { name: 'Grandchild 4' }]
+      }
+    ]
+  };
 
-        button {
-            margin: 5px;
-        }
-    </style>
-</head>
-<body>
-    <button onclick="expandAll()">Expand All</button>
-    <button onclick="collapseAll()">Collapse All</button>
-    <svg width="960" height="800"></svg>
+  private svg: any;
+  private root: any;
+  private treemap: any;
+  private i = 0;
 
-    <script src="https://d3js.org/d3.v4.min.js"></script>
-    <script>
-        var treeData = {
-            "name": "Root",
-            "children": [
-                {
-                    "name": "Child 1",
-                    "children": [
-                        { "name": "Grandchild 1" },
-                        { "name": "Grandchild 2" }
-                    ]
-                },
-                {
-                    "name": "Child 2",
-                    "children": [
-                        { "name": "Grandchild 3" },
-                        { "name": "Grandchild 4" }
-                    ]
-                }
-            ]
-        };
+  ngAfterViewInit(): void {
+    this.createTree();
+  }
 
-        var margin = { top: 20, right: 90, bottom: 30, left: 90 },
-            width = 960 - margin.left - margin.right,
-            height = 800 - margin.top - margin.bottom;
+  private createTree(): void {
+    const element = this.treeContainer.nativeElement;
+    const margin = { top: 20, right: 90, bottom: 30, left: 90 },
+          width = 960 - margin.left - margin.right,
+          height = 800 - margin.top - margin.bottom;
 
-        var svg = d3.select("svg")
-            .attr("width", width + margin.left + margin.right)
-            .attr("height", height + margin.top + margin.bottom)
-            .append("g")
-            .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+    const svgBase = d3.select(element).append('svg')
+      .attr('width', width + margin.left + margin.right)
+      .attr('height', height + margin.top + margin.bottom);
 
-        var gZoom = d3.select("svg").call(d3.zoom()
-            .scaleExtent([0.5, 2])
-            .on("zoom", function () {
-                svg.attr("transform", d3.event.transform);
-            }))
-            .on("dblclick.zoom", null); // disable double click zoom
+    this.svg = svgBase.append('g')
+      .attr('transform', `translate(${margin.left},${margin.top})`);
 
-        var treemap = d3.tree().size([width, height]);  // Swap size to [width, height]
+    svgBase.call(d3.zoom<any, any>()
+      .scaleExtent([0.5, 2])
+      .on('zoom', (event: any) => {
+        this.svg.attr('transform', event.transform);
+      }))
+      .on('dblclick.zoom', null);
 
-        var root = d3.hierarchy(treeData, function(d) { return d.children; });
-        root.x0 = width / 2;
-        root.y0 = 0;
+    this.treemap = d3.tree().size([width, height]);
 
-        function collapse(d) {
-            if (d.children) {
-                d._children = d.children;
-                d._children.forEach(collapse);
-                d.children = null;
-            }
-        }
+    this.root = d3.hierarchy(this.data, d => d.children);
+    this.root.x0 = width / 2;
+    this.root.y0 = 0;
 
-        function expand(d) {
-            if (d._children) {
-                d.children = d._children;
-                d.children.forEach(expand);
-                d._children = null;
-            }
-        }
+    this.update(this.root);
+  }
 
-        function collapseAll() {
-            root.children.forEach(collapse);
-            update(root);
-        }
+  private update(source: any): void {
+    const treeData = this.treemap(this.root);
+    const nodes = treeData.descendants();
+    const links = treeData.descendants().slice(1);
 
-        function expandAll() {
-            root.children.forEach(expand);
-            update(root);
-        }
+    nodes.forEach(d => { d.y = d.depth * 100; });
 
-        var i = 0;
+    const node = this.svg.selectAll('g.node')
+      .data(nodes, (d: any) => d.id || (d.id = ++this.i));
 
-        function update(source) {
-            var treeData = treemap(root);
+    const nodeEnter = node.enter().append('g')
+      .attr('class', 'node')
+      .attr('transform', `translate(${source.x0},${source.y0})`)
+      .on('click', (event: any, d: any) => this.click(d));
 
-            var nodes = treeData.descendants(),
-                links = treeData.descendants().slice(1);
+    nodeEnter.append('rect')
+      .attr('width', 100)
+      .attr('height', 30)
+      .attr('x', -50)
+      .attr('y', -15)
+      .attr('rx', 5)
+      .attr('ry', 5);
 
-            nodes.forEach(function(d){ d.y = d.depth * 100; });  // y is vertical depth
+    nodeEnter.append('text')
+      .attr('dy', 3)
+      .attr('x', 0)
+      .style('text-anchor', 'middle')
+      .text((d: any) => d.data.name);
 
-            var node = svg.selectAll('g.node')
-                .data(nodes, function(d) { return d.id || (d.id = ++i); });
+    const nodeUpdate = nodeEnter.merge(node as any);
+    nodeUpdate.transition()
+      .duration(200)
+      .attr('transform', (d: any) => `translate(${d.x},${d.y})`);
 
-            var nodeEnter = node.enter().append('g')
-                .attr('class', 'node')
-                .attr("transform", function(d) {
-                    return "translate(" + source.x0 + "," + source.y0 + ")";
-                })
-                .on('click', click);
+    nodeUpdate.select('rect')
+      .attr('fill', (d: any) => d._children ? '#ccc' : '#fff');
 
-            nodeEnter.append('rect')
-                .attr('width', 100)
-                .attr('height', 30)
-                .attr('x', -50)
-                .attr('y', -15)
-                .attr('rx', 5)
-                .attr('ry', 5);
+    const nodeExit = node.exit().transition()
+      .duration(200)
+      .attr('transform', (d: any) => `translate(${source.x},${source.y})`)
+      .remove();
 
-            nodeEnter.append('text')
-                .attr("dy", 3)
-                .attr("x", 0)
-                .style("text-anchor", "middle")
-                .text(function(d) { return d.data.name; });
+    const link = this.svg.selectAll('path.link')
+      .data(links, (d: any) => d.id);
 
-            var nodeUpdate = nodeEnter.merge(node);
+    const linkEnter = link.enter().insert('path', 'g')
+      .attr('class', 'link')
+      .attr('d', (d: any) => this.diagonal(source, source));
 
-            nodeUpdate.transition()
-                .duration(200)
-                .attr("transform", function(d) {
-                    return "translate(" + d.x + "," + d.y + ")";
-                });
+    const linkUpdate = linkEnter.merge(link as any);
+    linkUpdate.transition()
+      .duration(200)
+      .attr('d', (d: any) => this.diagonal(d, d.parent));
 
-            nodeUpdate.select('rect')
-                .attr('fill', function(d) {
-                    return d._children ? "#ccc" : "#fff";
-                });
+    const linkExit = link.exit().transition()
+      .duration(200)
+      .attr('d', (d: any) => this.diagonal(source, source))
+      .remove();
 
-            var nodeExit = node.exit().transition()
-                .duration(200)
-                .attr("transform", function(d) {
-                    return "translate(" + source.x + "," + source.y + ")";
-                })
-                .remove();
+    nodes.forEach((d: any) => {
+      d.x0 = d.x;
+      d.y0 = d.y;
+    });
 
-            var link = svg.selectAll('path.link')
-                .data(links, function(d) { return d.id; });
+    this.autoCenter();
+  }
 
-            var linkEnter = link.enter().insert('path', "g")
-                .attr("class", "link")
-                .attr('d', function(d){
-                    var o = {x: source.x0, y: source.y0}
-                    return diagonal(o, o)
-                });
+  private diagonal(s: any, d: any): string {
+    return `M${s.x},${s.y}
+            C${s.x},${(s.y + d.y) / 2}
+             ${d.x},${(s.y + d.y) / 2}
+             ${d.x},${d.y}`;
+  }
 
-            var linkUpdate = linkEnter.merge(link);
+  private click(d: any): void {
+    if (d.children) {
+      d._children = d.children;
+      d.children = null;
+    } else {
+      d.children = d._children;
+      d._children = null;
+    }
+    this.update(d);
+  }
 
-            linkUpdate.transition()
-                .duration(200)
-                .attr('d', function(d){ return diagonal(d, d.parent) });
+  expandAll(): void {
+    const expand = (d: any) => {
+      if (d._children) {
+        d.children = d._children;
+        d.children.forEach(expand);
+        d._children = null;
+      } else if (d.children) {
+        d.children.forEach(expand);
+      }
+    };
+    this.root.children.forEach(expand);
+    this.update(this.root);
+  }
 
-            var linkExit = link.exit().transition()
-                .duration(200)
-                .attr('d', function(d) {
-                    var o = {x: source.x, y: source.y}
-                    return diagonal(o, o)
-                })
-                .remove();
+  collapseAll(): void {
+    const collapse = (d: any) => {
+      if (d.children) {
+        d._children = d.children;
+        d._children.forEach(collapse);
+        d.children = null;
+      }
+    };
+    this.root.children.forEach(collapse);
+    this.update(this.root);
+  }
 
-            nodes.forEach(function(d){
-                d.x0 = d.x;
-                d.y0 = d.y;
-            });
+  private autoCenter(): void {
+    const bounds = this.svg.node().getBBox();
+    const fullWidth = 960;
+    const fullHeight = 800;
+    const midX = bounds.x + bounds.width / 2;
+    const midY = bounds.y + bounds.height / 2;
 
-            autoCenter();
-        }
+    const translate = [fullWidth / 2 - midX, fullHeight / 2 - midY];
 
-        function diagonal(s, d) {
-            return "M" + s.x + "," + s.y
-                + "C" + s.x + "," + (s.y + d.y) / 2
-                + " " + d.x + "," + (s.y + d.y) / 2
-                + " " + d.x + "," + d.y;
-        }
-
-        function click(d) {
-            if (d.children) {
-                d._children = d.children;
-                d.children = null;
-            } else {
-                d.children = d._children;
-                d._children = null;
-            }
-            update(d);
-        }
-
-        function autoCenter() {
-            var bounds = svg.node().getBBox(),
-                fullWidth = +d3.select("svg").attr("width"),
-                fullHeight = +d3.select("svg").attr("height"),
-                midX = (bounds.x + bounds.width / 2),
-                midY = (bounds.y + bounds.height / 2);
-
-            var scale = 1;
-            var translate = [fullWidth / 2 - midX, fullHeight / 2 - midY];
-
-            d3.select("svg").transition()
-                .duration(750)
-                .call(d3.zoom().transform, d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale));
-        }
-
-        update(root);
-    </script>
-</body>
-</html>
+    d3.select(this.treeContainer.nativeElement).select('svg')
+      .transition()
+      .duration(750)
+      .call(
+        d3.zoom<any, any>().transform,
+        d3.zoomIdentity.translate(translate[0], translate[1]).scale(1)
+      );
+  }
+}
