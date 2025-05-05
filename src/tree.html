@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<html>
+<head>
+    <style>
+        .node rect {
+            fill: #fff;
+            stroke: steelblue;
+            stroke-width: 1.5px;
+        }
+
+        .node text {
+            font: 12px sans-serif;
+            pointer-events: none;
+        }
+
+        .link {
+            fill: none;
+            stroke: #ccc;
+            stroke-width: 1.5px;
+        }
+
+        button {
+            margin: 5px;
+        }
+    </style>
+</head>
+<body>
+    <button onclick="expandAll()">Expand All</button>
+    <button onclick="collapseAll()">Collapse All</button>
+    <svg width="960" height="800"></svg>
+
+    <script src="https://d3js.org/d3.v4.min.js"></script>
+    <script>
+        var treeData = {
+            "name": "Root",
+            "children": [
+                {
+                    "name": "Child 1",
+                    "children": [
+                        { "name": "Grandchild 1" },
+                        { "name": "Grandchild 2" }
+                    ]
+                },
+                {
+                    "name": "Child 2",
+                    "children": [
+                        { "name": "Grandchild 3" },
+                        { "name": "Grandchild 4" }
+                    ]
+                }
+            ]
+        };
+
+        var margin = { top: 20, right: 90, bottom: 30, left: 90 },
+            width = 960 - margin.left - margin.right,
+            height = 800 - margin.top - margin.bottom;
+
+        var svg = d3.select("svg")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+            .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+        var gZoom = d3.select("svg").call(d3.zoom()
+            .scaleExtent([0.5, 2])
+            .on("zoom", function () {
+                svg.attr("transform", d3.event.transform);
+            }))
+            .on("dblclick.zoom", null); // disable double click zoom
+
+        var treemap = d3.tree().size([width, height]);  // Swap size to [width, height]
+
+        var root = d3.hierarchy(treeData, function(d) { return d.children; });
+        root.x0 = width / 2;
+        root.y0 = 0;
+
+        function collapse(d) {
+            if (d.children) {
+                d._children = d.children;
+                d._children.forEach(collapse);
+                d.children = null;
+            }
+        }
+
+        function expand(d) {
+            if (d._children) {
+                d.children = d._children;
+                d.children.forEach(expand);
+                d._children = null;
+            }
+        }
+
+        function collapseAll() {
+            root.children.forEach(collapse);
+            update(root);
+        }
+
+        function expandAll() {
+            root.children.forEach(expand);
+            update(root);
+        }
+
+        var i = 0;
+
+        function update(source) {
+            var treeData = treemap(root);
+
+            var nodes = treeData.descendants(),
+                links = treeData.descendants().slice(1);
+
+            nodes.forEach(function(d){ d.y = d.depth * 100; });  // y is vertical depth
+
+            var node = svg.selectAll('g.node')
+                .data(nodes, function(d) { return d.id || (d.id = ++i); });
+
+            var nodeEnter = node.enter().append('g')
+                .attr('class', 'node')
+                .attr("transform", function(d) {
+                    return "translate(" + source.x0 + "," + source.y0 + ")";
+                })
+                .on('click', click);
+
+            nodeEnter.append('rect')
+                .attr('width', 100)
+                .attr('height', 30)
+                .attr('x', -50)
+                .attr('y', -15)
+                .attr('rx', 5)
+                .attr('ry', 5);
+
+            nodeEnter.append('text')
+                .attr("dy", 3)
+                .attr("x", 0)
+                .style("text-anchor", "middle")
+                .text(function(d) { return d.data.name; });
+
+            var nodeUpdate = nodeEnter.merge(node);
+
+            nodeUpdate.transition()
+                .duration(200)
+                .attr("transform", function(d) {
+                    return "translate(" + d.x + "," + d.y + ")";
+                });
+
+            nodeUpdate.select('rect')
+                .attr('fill', function(d) {
+                    return d._children ? "#ccc" : "#fff";
+                });
+
+            var nodeExit = node.exit().transition()
+                .duration(200)
+                .attr("transform", function(d) {
+                    return "translate(" + source.x + "," + source.y + ")";
+                })
+                .remove();
+
+            var link = svg.selectAll('path.link')
+                .data(links, function(d) { return d.id; });
+
+            var linkEnter = link.enter().insert('path', "g")
+                .attr("class", "link")
+                .attr('d', function(d){
+                    var o = {x: source.x0, y: source.y0}
+                    return diagonal(o, o)
+                });
+
+            var linkUpdate = linkEnter.merge(link);
+
+            linkUpdate.transition()
+                .duration(200)
+                .attr('d', function(d){ return diagonal(d, d.parent) });
+
+            var linkExit = link.exit().transition()
+                .duration(200)
+                .attr('d', function(d) {
+                    var o = {x: source.x, y: source.y}
+                    return diagonal(o, o)
+                })
+                .remove();
+
+            nodes.forEach(function(d){
+                d.x0 = d.x;
+                d.y0 = d.y;
+            });
+
+            autoCenter();
+        }
+
+        function diagonal(s, d) {
+            return "M" + s.x + "," + s.y
+                + "C" + s.x + "," + (s.y + d.y) / 2
+                + " " + d.x + "," + (s.y + d.y) / 2
+                + " " + d.x + "," + d.y;
+        }
+
+        function click(d) {
+            if (d.children) {
+                d._children = d.children;
+                d.children = null;
+            } else {
+                d.children = d._children;
+                d._children = null;
+            }
+            update(d);
+        }
+
+        function autoCenter() {
+            var bounds = svg.node().getBBox(),
+                fullWidth = +d3.select("svg").attr("width"),
+                fullHeight = +d3.select("svg").attr("height"),
+                midX = (bounds.x + bounds.width / 2),
+                midY = (bounds.y + bounds.height / 2);
+
+            var scale = 1;
+            var translate = [fullWidth / 2 - midX, fullHeight / 2 - midY];
+
+            d3.select("svg").transition()
+                .duration(750)
+                .call(d3.zoom().transform, d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale));
+        }
+
+        update(root);
+    </script>
+</body>
+</html>
